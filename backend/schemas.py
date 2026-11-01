@@ -21,3 +21,11 @@ class TokenizeResponse(BaseModel):
     tokens: list[TokenItem]
 
 
+class ModelInfoResponse(BaseModel):
+    model_id: str
+    num_layers: int
+    hidden_size: int
+    num_query_heads: int
+    num_kv_heads: int
+    head_dim: int
+    queries_per_kv_head: int

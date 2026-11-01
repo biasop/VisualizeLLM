@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { tokenizeText } from './api/tokenization'
 import TokenList from './components/TokenList'
+import ModelNavigator from './components/ModelNavigator'
 import type { TokenizeResponse } from './types/tokenization'
 
 const sampleText = 'Xin chào Việt Nam!\nTôi học AI 😊.'
@@ -31,12 +32,15 @@ export default function App() {
   return (
     <main className="page">
       <header className="page-header">
-        <p className="eyebrow">Visualize LLM · Module 1</p>
-        <h1>Tokenization</h1>
-        <p>Nhập text, xem token thật từ Qwen2.5 và chọn một token để kiểm tra ID, vị trí và offset.</p>
+        <p className="eyebrow">Visualize LLM</p>
+        <h1>Khám phá từ token đến head</h1>
+        <p>Xem cấu trúc model, chọn layer và head. Nhập text để kiểm tra token thật, ID và vị trí.</p>
       </header>
 
+      <ModelNavigator />
+
       <section className="input-panel" aria-label="Nhập text">
+        <h2>Tokenization</h2>
         <label htmlFor="source-text">Text đầu vào</label>
         <textarea
           id="source-text"

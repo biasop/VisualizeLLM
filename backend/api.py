@@ -2,11 +2,17 @@ from fastapi import FastAPI
 from transformers import AutoTokenizer
 from backend.schemas import TokenizeRequest, TokenItem, TokenizeResponse
 from tokenization import tokenize_text
+from backend.model_info import inspect_head_layout
+from backend.schemas import ModelInfoResponse
 
 MODEL_ID = "Qwen/Qwen2.5-0.5B"
 
 app = FastAPI()
 tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
+model_info = ModelInfoResponse(
+    model_id = MODEL_ID,
+    **inspect_head_layout(MODEL_ID)
+)
 
 @app.post("/api/tokenize", response_model=TokenizeResponse)
 def tokenize(request: TokenizeRequest) -> TokenizeResponse:
@@ -25,3 +31,6 @@ def tokenize(request: TokenizeRequest) -> TokenizeResponse:
     return TokenizeResponse(text=request.text, model_id=MODEL_ID, tokens=items)
 
 
+@app.get("/api/model-info", response_model=ModelInfoResponse)
+def get_model_info() -> ModelInfoResponse:
+    return model_info
