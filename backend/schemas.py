@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-
+from uuid import UUID
 
 class TokenizeRequest(BaseModel):
     text: str
@@ -29,3 +29,8 @@ class ModelInfoResponse(BaseModel):
     num_kv_heads: int
     head_dim: int
     queries_per_kv_head: int
+
+class TraceCreatedResponse(BaseModel):
+    trace_id: UUID
+    tokenization: TokenizeResponse
+    model_info: ModelInfoResponse

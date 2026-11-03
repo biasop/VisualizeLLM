@@ -5,6 +5,7 @@ from transformers import (
     BatchEncoding,
     PreTrainedModel
 )
+from functools import lru_cache
 
 from tokenization import tokenize_text
 
@@ -22,6 +23,10 @@ def load_model(model_id:str) -> PreTrainedModel:
     model.eval()
 
     return model
+
+@lru_cache(maxsize=1)
+def get_loaded_model(model_id: str) -> PreTrainedModel:
+    return load_model(model_id)
 
 @torch. inference_mode()
 def forward_once(
