@@ -34,3 +34,17 @@ class TraceCreatedResponse(BaseModel):
     trace_id: UUID
     tokenization: TokenizeResponse
     model_info: ModelInfoResponse
+
+class TensorPayload(BaseModel):
+    name: str
+    shape: list[int]
+    axes: list[str]
+    stage: str
+    source_dtype: str
+    values: list[list[list[float]]]
+
+class QKVLayerResponse(BaseModel):
+    trace_id: UUID
+    layer_index: int
+    color_limit: float
+    tensors: list[TensorPayload]

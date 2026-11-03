@@ -3,12 +3,13 @@ from transformers import AutoTokenizer
 from backend.schemas import TokenizeRequest, TokenItem, TokenizeResponse
 from tokenization import tokenize_text
 from backend.model_info import inspect_head_layout
-from backend.schemas import ModelInfoResponse, TraceCreatedResponse
+from backend.schemas import ModelInfoResponse, TraceCreatedResponse, QKVLayerResponse, TensorPayload
 from backend.trace_store import trace_lock, traces
 from backend.model_runner import get_loaded_model
 from backend.qkv_trace import capture_qkv, reshape_layer_qkv
 from fastapi import HTTPException
-from uuid import uuid4
+from uuid import uuid4, UUID
+import torch
 
 MODEL_ID = "Qwen/Qwen2.5-0.5B"
 
@@ -98,3 +99,62 @@ def create_trace(request: TokenizeRequest) -> TraceCreatedResponse:
         traces[trace_id] = layers
 
     return response
+
+@app.get("/api/traces/{trace_id}/layers/{layer_index}/qkv", response_model=QKVLayerResponse)
+def get_layer_qkv(
+    trace_id: UUID,
+    layer_index: int
+) -> QKVLayerResponse:
+    with trace_lock:
+        layers = traces.get(str(trace_id))
+
+        if layers is None:
+            raise HTTPException(
+                status_code = 404,
+                detail = "Trace không tồn tại hoặc đã được thay thế."
+            )
+
+        if layer_index not in layers:
+            raise HTTPException(
+                status_code=404,
+                detail="Layer không tồn tại trong trace.",
+            )
+
+        layer = layers[layer_index]
+
+    specifications = [
+        ("q_pre_rope", "query_head", "pre_rope"),
+        ("k_pre_rope", "kv_head", "pre_rope"),
+        ("v", "kv_head", "after_projection"),
+    ]
+
+    payloads = []
+    max_abs =0.0
+
+    for name, head_axis, stage in specifications:
+        tensor = layer[name]
+
+        if not torch.isfinite(tensor).all().item():
+            raise HTTPException(
+                status_code=500,
+                detail=f"Tensor {name} chứa giá trị không finite.",
+            )
+
+        max_abs = max(max_abs, tensor.abs().max().item())
+
+        payloads.append(
+            TensorPayload(
+                name=name,
+                shape=list(tensor.shape),
+                axes=["token", head_axis, "head_dimension"],
+                stage=stage,
+                source_dtype=str(tensor.dtype),
+                values=tensor.float().tolist(),
+            )
+        )
+    return QKVLayerResponse(
+        trace_id=trace_id,
+        layer_index=layer_index,
+        color_limit=max_abs if max_abs > 0 else 1.0,
+        tensors=payloads,
+    )

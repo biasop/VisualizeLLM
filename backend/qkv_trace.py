@@ -112,3 +112,13 @@ if __name__ == "__main__":
     print(reshaped["q_pre_rope"][:, query_head, :].shape)
     print(reshaped["k_pre_rope"][:, kv_head, :].shape)
     print(reshaped["v"][:, kv_head, :].shape)
+
+"""
+Khi có nhiều user check cùng lúc trên một model, vì model là dùng chung 
+nên nếu không có trace lock, hai người cùng makehook có thể gây conflict
+
+flow nên là
+A lấy khóa → đăng ký hook A → forward A → gỡ hook A → nhả khóa
+B chờ      ...................................... → lấy khóa
+B đăng ký hook B → forward B → gỡ hook B → nhả khóa
+"""
