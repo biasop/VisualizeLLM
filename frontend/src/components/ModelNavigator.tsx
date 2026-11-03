@@ -2,19 +2,24 @@ import { useEffect, useState } from 'react'
 import { getModelInfo } from '../api/model'
 import type { ModelInfo } from '../types/model'
 
-export default function ModelNavigator() {
-  const [info, setInfo] = useState<ModelInfo | null>(null)
+type Props = {
+  layer: number | null
+  head: number | null
+  onSelectLayer: (layer: number) => void
+  onSelectHead: (head: number) => void
+  traceInfo?: ModelInfo
+}
+
+export default function ModelNavigator({ layer, head, onSelectLayer, onSelectHead, traceInfo }: Props) {
+  const [loadedInfo, setInfo] = useState<ModelInfo | null>(null)
+  const info = traceInfo ?? loadedInfo
   const [error, setError] = useState<string | null>(null)
   const [retry, setRetry] = useState(0)
-  const [layer, setLayer] = useState<number | null>(null)
-  const [head, setHead] = useState<number | null>(null)
 
   useEffect(() => {
     const controller = new AbortController()
     setInfo(null)
     setError(null)
-    setLayer(null)
-    setHead(null)
 
     getModelInfo(controller.signal)
       .then((result) => {
@@ -41,7 +46,7 @@ export default function ModelNavigator() {
         {info && <span className="model-tag">{info.model_id}</span>}
       </div>
 
-      {error ? (
+      {error && !traceInfo ? (
         <div role="alert" className="model-error">
           <p>{error}. Kiểm tra FastAPI đang chạy ở cổng 8000.</p>
           <button type="button" className="secondary-button" onClick={() => setRetry((value) => value + 1)}>Thử lại</button>
@@ -66,7 +71,7 @@ export default function ModelNavigator() {
                 type="button"
                 className={`layer-card${layer === index ? ' active' : ''}`}
                 aria-pressed={layer === index}
-                onClick={() => { setLayer(index); setHead(null) }}
+                onClick={() => onSelectLayer(index)}
               >
                 <span className="field-label">Layer</span>
                 <strong>{index}</strong>
@@ -88,7 +93,7 @@ export default function ModelNavigator() {
                     type="button"
                     className={`head-card${head === index ? ' active' : ''}`}
                     aria-pressed={head === index}
-                    onClick={() => setHead(index)}
+                    onClick={() => onSelectHead(index)}
                   >
                     <strong>Q head {index}</strong>
                     <span>KV head {Math.floor(index / info.queries_per_kv_head)}</span>
@@ -109,7 +114,7 @@ export default function ModelNavigator() {
               </div>
             </div>
           )}
-          <p className="config-note">Đây là thông tin kiến trúc từ config. Chưa có trace activation; chọn layer/head không chạy model.</p>
+          <p className="config-note">{traceInfo ? 'Trace đã được tạo. Layer được tải khi chọn và giữ trong cache; đổi head/token không chạy lại model.' : 'Đây là thông tin kiến trúc từ config. Bấm “Chạy model, tạo trace” để thu activation thật.'}</p>
         </>
       )}
     </section>

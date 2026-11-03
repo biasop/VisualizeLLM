@@ -1,65 +1,125 @@
-import { useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { tokenizeText } from './api/tokenization'
+import { createTrace, getLayerQKV } from './api/trace'
 import TokenList from './components/TokenList'
 import ModelNavigator from './components/ModelNavigator'
 import type { TokenizeResponse } from './types/tokenization'
+import type { QKVLayer, TraceCreated } from './types/trace'
 
+const QKVHeatmaps = lazy(() => import('./components/QKVHeatmaps'))
 const sampleText = 'Xin chào Việt Nam!\nTôi học AI 😊.'
 
 export default function App() {
   const [text, setText] = useState(sampleText)
   const [data, setData] = useState<TokenizeResponse | null>(null)
+  const [trace, setTrace] = useState<TraceCreated | null>(null)
   const [selectedPosition, setSelectedPosition] = useState<number | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [selectedLayer, setSelectedLayer] = useState(0)
+  const [queryHead, setQueryHead] = useState(0)
+  const [loading, setLoading] = useState<'tokenize' | 'trace' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [layerData, setLayerData] = useState<QKVLayer | null>(null)
+  const [layerError, setLayerError] = useState<string | null>(null)
+  const [loadingLayer, setLoadingLayer] = useState(false)
+  const [retryLayer, setRetryLayer] = useState(0)
+  const cache = useRef(new Map<string, QKVLayer>())
 
-  async function handleTokenize() {
-    setLoading(true)
+  useEffect(() => {
+    const controller = new AbortController()
+    setLayerData(null)
+    setLayerError(null)
+    setLoadingLayer(false)
+    if (!trace) return () => controller.abort()
+
+    const key = `${trace.trace_id}:${selectedLayer}`
+    const cached = cache.current.get(key)
+    if (cached) {
+      setLayerData(cached)
+      return () => controller.abort()
+    }
+
+    setLoadingLayer(true)
+    getLayerQKV(trace.trace_id, selectedLayer, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return
+        cache.current.set(key, result)
+        setLayerData(result)
+      })
+      .catch((caught: unknown) => {
+        if (!controller.signal.aborted) setLayerError(caught instanceof Error ? caught.message : 'Không lấy được QKV.')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingLayer(false)
+      })
+
+    return () => controller.abort()
+  }, [trace, selectedLayer, retryLayer])
+
+  async function handleRun(mode: 'tokenize' | 'trace') {
+    setLoading(mode)
     setError(null)
     setData(null)
+    setTrace(null)
     setSelectedPosition(null)
+    cache.current.clear()
 
     try {
-      const result = await tokenizeText(text)
-      setData(result)
+      if (mode === 'tokenize') {
+        setData(await tokenizeText(text))
+      } else {
+        const result = await createTrace(text)
+        setData(result.tokenization)
+        setSelectedLayer((previous) => previous < result.model_info.num_layers ? previous : 0)
+        setQueryHead((previous) => previous < result.model_info.num_query_heads ? previous : 0)
+        setSelectedPosition(0)
+        setTrace(result)
+      }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Không thể gọi API tokenize')
+      setError(caught instanceof Error ? caught.message : 'Không thể gọi API.')
     } finally {
-      setLoading(false)
+      setLoading(null)
     }
   }
 
   return (
     <main className="page">
       <header className="page-header">
-        <p className="eyebrow">Visualize LLM</p>
+        <p className="eyebrow">Visualize LLM · QKV trước RoPE</p>
         <h1>Khám phá từ token đến head</h1>
-        <p>Xem cấu trúc model, chọn layer và head. Nhập text để kiểm tra token thật, ID và vị trí.</p>
+        <p>Chạy một input, duyệt layer và head từ trace đã thu. Mỗi heatmap hiển thị activation thật của một head.</p>
       </header>
 
-      <ModelNavigator />
-
       <section className="input-panel" aria-label="Nhập text">
-        <h2>Tokenization</h2>
+        <h2>Input · Batch size 1</h2>
         <label htmlFor="source-text">Text đầu vào</label>
-        <textarea
-          id="source-text"
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          rows={4}
-          maxLength={1000}
-          spellCheck={false}
-        />
+        <textarea id="source-text" value={text} onChange={(event) => setText(event.target.value)} rows={4} maxLength={1000} spellCheck={false} disabled={loading !== null} />
         <div className="input-actions">
-          <span>{Array.from(text).length} ký tự</span>
-          <button type="button" onClick={() => void handleTokenize()} disabled={loading || text.length === 0}>
-            {loading ? 'Đang tokenize…' : 'Tokenize'}
-          </button>
+          <span>{Array.from(text).length} ký tự · Trace hỗ trợ 1–32 token</span>
+          <div className="run-buttons">
+            <button className="tokenize-button" type="button" onClick={() => void handleRun('tokenize')} disabled={loading !== null || text.length === 0}>{loading === 'tokenize' ? 'Đang tokenize…' : 'Chỉ tokenize'}</button>
+            <button type="button" onClick={() => void handleRun('trace')} disabled={loading !== null || text.length === 0}>{loading === 'trace' ? 'Đang chạy model…' : 'Chạy model, tạo trace'}</button>
+          </div>
         </div>
+        {loading === 'trace' && <p role="status" className="muted">Đang thu QKV của các layer. Lần đầu có thể cần tải và nạp trọng số lên GPU.</p>}
       </section>
 
-      {error && <p className="error" role="alert">{error}. Kiểm tra FastAPI đang chạy ở cổng 8000.</p>}
+      {error && <p className="error" role="alert">{error}</p>}
       {data && <TokenList data={data} selectedPosition={selectedPosition} onSelect={setSelectedPosition} />}
+      {trace && <p className="trace-label">Trace: <code>{trace.trace_id}</code> · Dữ liệu của text trong bảng token phía trên. Chỉnh ô nhập chưa thay đổi trace này.</p>}
+
+      <ModelNavigator
+        layer={selectedLayer} head={queryHead} traceInfo={trace?.model_info}
+        onSelectLayer={(layer) => { setSelectedLayer(layer); setQueryHead(0) }}
+        onSelectHead={setQueryHead}
+      />
+
+      {trace && loadingLayer && <p role="status" className="muted">Đang đọc QKV layer {selectedLayer} từ trace…</p>}
+      {trace && layerError && <div className="error" role="alert"><p>{layerError} Nếu backend đã restart hoặc trace bị thay thế, hãy tạo trace mới.</p><button className="secondary-button" type="button" onClick={() => setRetryLayer((value) => value + 1)}>Đọc lại layer</button></div>}
+      {trace && layerData && layerData.trace_id === trace.trace_id && layerData.layer_index === selectedLayer && (
+        <Suspense fallback={<p className="muted" role="status">Đang nạp Plotly…</p>}>
+          <QKVHeatmaps layer={layerData} info={trace.model_info} tokens={trace.tokenization.tokens} queryHead={queryHead} selectedPosition={selectedPosition} onSelectToken={setSelectedPosition} />
+        </Suspense>
+      )}
     </main>
   )
 }
