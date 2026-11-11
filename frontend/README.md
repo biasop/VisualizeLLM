@@ -23,11 +23,16 @@ Không có dữ liệu activation giả hoặc fallback: heatmap chỉ xuất hi
 
 ## Tensor và cách vẽ
 
-- Contract `types/trace.ts` khớp schema FastAPI. Q/K trước RoPE; V sau projection và không áp dụng RoPE.
+- Contract `types/trace.ts` khớp schema FastAPI. Tên tensor là `q_attention_input`, `k_attention_input`, `v_attention_input`; stage là `attention_input`.
+- Điểm lấy là đầu vào attention backend, sau những xử lý của implementation model. Với Qwen2 đây là Q/K sau RoPE. Model không dùng RoPE không được app tự thêm RoPE; nhãn chung không khẳng định mọi model đều có RoPE.
 - Trục của `values`: `[token][head][head_dimension]`, batch size 1 đã được bỏ tại backend.
 - `visualization/qkv.ts` kiểm tra shape/trục/stage và chọn query head cùng KV head theo GQA.
+- Chiều Q/K lấy từ metadata config đã kiểm tra (ưu tiên `head_dim` explicit); V dùng chiều thực tế của tensor. Không giả định chiều head luôn bằng hidden size chia số query head.
 - Plotly nhận ma trận `[token][head_dimension]`. Hàng 0 ở trên; nhãn hàng dùng position và raw token.
-- Mặc định hiển thị **Δ so với token tham chiếu**: `ΔX[i,h,d] = X[i,h,d] - X[reference,h,d]`. Đây là dữ liệu dẫn xuất để thấy khác biệt giữa token, không phải activation gốc hay bước tính của model. Có thể chuyển về **Activation gốc**. Hover và bảng luôn cho xem giá trị gốc; không sửa trace.
+- Mặc định **Trừ trung bình theo token**: `X′[i,h,d] = X[i,h,d] - mean_tokens(X[:,h,d])`. Thống kê riêng từng tensor, layer, head và chiều vector; không gộp head hoặc chiều. Giữ đơn vị activation; dấu biểu thị cao/thấp hơn trung bình.
+- **Z-score theo token**: `(X-mean)/std`, dùng population std (`correction=0`). Chiều có std bằng 0 được đặt 0. Thể hiện số độ lệch chuẩn, không thể đọc như độ lớn activation gốc; ít token có thể khuếch đại biến thiên nhỏ.
+- **Min–max theo token**: `(X-min)/(max-min)` trên từng cặp `(head, dimension)` qua mọi token. Chiều hằng đặt 0. Dùng thang [0,1] cố định và bảng màu tuần tự: trắng là thấp, xanh đậm là cao; không biểu diễn dấu activation.
+- Vẫn có **Δ so với token tham chiếu**: `ΔX[i,h,d] = X[i,h,d] - X[reference,h,d]`, và **Activation gốc**. Chọn token so sánh không ảnh hưởng thống kê mean/std/minmax. Hover và bảng luôn cho xem giá trị gốc lẫn giá trị biểu diễn; không sửa trace.
 - Token tham chiếu do người dùng chọn, mặc định position 0; bấm hàng hoặc đổi head không tự đổi tham chiếu. Input một token thì Δ bằng 0.
 - Mặc định dùng thang riêng từng tensor: max trị tuyệt đối của dữ liệu đang vẽ trên mọi token/head của tensor đó. Không so sánh độ lớn giữa Q/K/V bằng màu khi dùng thang riêng.
 - Có tùy chọn thang chung Q/K/V. Ở chế độ gốc, dùng `color_limit` backend; ở chế độ Δ, dùng max trị tuyệt đối của mọi Δ trong cả ba tensor. Không chia chuẩn hóa giá trị.
@@ -37,3 +42,9 @@ Không có dữ liệu activation giả hoặc fallback: heatmap chỉ xuất hi
 - Tensor có `source_dtype=float16` vẫn giữ độ chính xác FP16 dù backend chuyển sang FP32 để serialize JSON.
 
 Chọn ô hoặc token không thể hiện quan hệ nhân quả hay ý nghĩa ngữ nghĩa của một chiều activation.
+
+## Phạm vi tracer backend
+
+Backend dùng `AttentionInterface` và formatter mask SDPA, không monkey-patch hàm RoPE riêng của model. Hỗ trợ phạm vi decoder-only MHA/GQA truyền kwargs và gọi attention đúng một lần cho mỗi decoder layer; trường hợp ngoài phạm vi phải báo lỗi rõ ràng. Model selector nhiều checkpoint chưa được thêm; model đang hoạt động vẫn do `MODEL_ID` backend quyết định.
+
+Sau khi đổi contract từ pre-RoPE sang attention-input, restart backend và tạo trace mới. Frontend không diễn giải trace cũ bằng nhãn mới.

@@ -108,9 +108,9 @@ export default function ModelNavigator({ layer, head, onSelectLayer, onSelectHea
               <h3>Layer {layer} · Query head {head} → KV head {kvHead}</h3>
               <p>Với một input có S token, các heatmap sẽ có shape kỳ vọng:</p>
               <div className="tensor-preview-grid">
-                <div><strong>Q · head {head}</strong><code>[S, {info.head_dim}]</code><span>Trước RoPE</span></div>
-                <div><strong>K · head {kvHead}</strong><code>[S, {info.head_dim}]</code><span>Trước RoPE</span></div>
-                <div><strong>V · head {kvHead}</strong><code>[S, {info.head_dim}]</code><span>Không áp dụng RoPE</span></div>
+                <div><strong>Q · head {head}</strong><code>[S, {info.head_dim}]</code><span>Đầu vào attention</span></div>
+                <div><strong>K · head {kvHead}</strong><code>[S, {info.head_dim}]</code><span>Đầu vào attention</span></div>
+                <div><strong>V · head {kvHead}</strong><code>[S, Dv]</code><span>Chiều thực tế lấy từ trace</span></div>
               </div>
             </div>
           )}

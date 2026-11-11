@@ -16,7 +16,7 @@ def load_model(model_id:str) -> PreTrainedModel:
     model = AutoModelForCausalLM.from_pretrained(
         model_id,
         dtype = torch.float16,
-        attn_implementation="eager"
+        attn_implementation="sdpa"
     )
 
     model = model.to("cuda")
@@ -28,10 +28,11 @@ def load_model(model_id:str) -> PreTrainedModel:
 def get_loaded_model(model_id: str) -> PreTrainedModel:
     return load_model(model_id)
 
-@torch. inference_mode()
+@torch.inference_mode()
 def forward_once(
     model: PreTrainedModel,
     encoding: BatchEncoding,
+    **model_kwargs
 ) -> torch.Tensor:
     nums_token = len(encoding["input_ids"])
     if not 1 <= nums_token <= 32:
@@ -52,7 +53,8 @@ def forward_once(
     outputs = model(
         input_ids=input_ids,
         attention_mask=attention_mask,
-        use_cache=False
+        use_cache=False,
+        **model_kwargs
     )
 
     return outputs.logits

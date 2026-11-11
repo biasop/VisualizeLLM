@@ -84,7 +84,7 @@ export default function App() {
   return (
     <main className="page">
       <header className="page-header">
-        <p className="eyebrow">Visualize LLM · QKV trước RoPE</p>
+        <p className="eyebrow">Visualize LLM · QKV đầu vào attention</p>
         <h1>Khám phá từ token đến head</h1>
         <p>Chạy một input, duyệt layer và head từ trace đã thu. Mỗi heatmap hiển thị activation thật của một head.</p>
       </header>

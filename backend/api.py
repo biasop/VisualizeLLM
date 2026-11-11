@@ -1,12 +1,13 @@
 from fastapi import FastAPI
 from transformers import AutoTokenizer
-from backend.schemas import TokenizeRequest, TokenItem, TokenizeResponse
+from backend.schemas import TokenizeRequest, TokenizeResponse
 from tokenization import tokenize_text
 from backend.model_info import inspect_head_layout
 from backend.schemas import ModelInfoResponse, TraceCreatedResponse, QKVLayerResponse, TensorPayload
 from backend.trace_store import trace_lock, traces
 from backend.model_runner import get_loaded_model
-from backend.qkv_trace import capture_qkv, reshape_layer_qkv
+from backend.qkv_trace import capture_qkv, UnsupportedTraceError
+from backend.tokenization_service import build_tokenize_response
 from fastapi import HTTPException
 from uuid import uuid4, UUID
 import torch
@@ -23,18 +24,7 @@ model_info = ModelInfoResponse(
 @app.post("/api/tokenize", response_model=TokenizeResponse)
 def tokenize(request: TokenizeRequest) -> TokenizeResponse:
     encoding = tokenize_text(request.text, tokenizer)
-    raw_tokens = tokenizer.convert_ids_to_tokens(encoding["input_ids"])
-
-    items: list[TokenItem] = []
-
-    for i, token_id in enumerate(encoding["input_ids"]):
-        start, end = encoding["offset_mapping"][i]
-
-        token_item = TokenItem(position=i, id=token_id, raw_token=raw_tokens[i], start=start, end=end, attention_mask=encoding["attention_mask"][i], is_special=token_id in tokenizer.all_special_ids)
-
-        items.append(token_item)
-
-    return TokenizeResponse(text=request.text, model_id=MODEL_ID, tokens=items)
+    return build_tokenize_response(request.text, encoding, tokenizer, MODEL_ID)
 
 
 @app.get("/api/model-info", response_model=ModelInfoResponse)
@@ -52,40 +42,14 @@ def create_trace(request: TokenizeRequest) -> TraceCreatedResponse:
             detail= "Input cần có từ 1 đến 32 token."
         )
 
-    raw_tokens = tokenizer.convert_ids_to_tokens(encoding["input_ids"])
-
-    items = []
-
-    for i, token_id in enumerate(encoding["input_ids"]):
-        start, end = encoding["offset_mapping"][i]
-        items.append(
-            TokenItem(
-                position=i,
-                id=token_id,
-                raw_token=raw_tokens[i],
-                start=start,
-                end=end,
-                attention_mask=encoding["attention_mask"][i],
-                is_special=token_id in tokenizer.all_special_ids,
-            )
-        )
-
-    tokenization = TokenizeResponse(
-        text = request.text,
-        model_id = MODEL_ID,
-        tokens=items
-    )
-
-    layout = model_info.model_dump(exclude={"model_id"})
+    tokenization = build_tokenize_response(request.text, encoding, tokenizer, MODEL_ID)
 
     with trace_lock:
         model = get_loaded_model(MODEL_ID)
-        captured = capture_qkv(model, encoding)
-
-        layers = {
-            layer_index: reshape_layer_qkv(layer_tensors, layout) 
-            for layer_index, layer_tensors in captured.items()
-        }
+        try:
+            layers = capture_qkv(model, encoding)
+        except UnsupportedTraceError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
 
         trace_id = str(uuid4())
 
@@ -123,9 +87,9 @@ def get_layer_qkv(
         layer = layers[layer_index]
 
     specifications = [
-        ("q_pre_rope", "query_head", "pre_rope"),
-        ("k_pre_rope", "kv_head", "pre_rope"),
-        ("v", "kv_head", "after_projection"),
+        ("q_attention_input", "query_head", "attention_input"),
+        ("k_attention_input", "kv_head", "attention_input"),
+        ("v_attention_input", "kv_head", "attention_input"),
     ]
 
     payloads = []
