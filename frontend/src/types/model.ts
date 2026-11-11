@@ -1,3 +1,5 @@
+export type ModelOption = { model_id: string; label: string }
+
 export type ModelInfo = {
   model_id: string
   num_layers: number

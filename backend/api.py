@@ -9,30 +9,61 @@ from backend.model_runner import get_loaded_model
 from backend.qkv_trace import capture_qkv, UnsupportedTraceError
 from backend.tokenization_service import build_tokenize_response
 from fastapi import HTTPException
+from functools import lru_cache
+from backend.model_catalog import DEFAULT_MODEL_ID, MODEL_OPTIONS, MODEL_IDS
+from backend.schemas import ModelOption
 from uuid import uuid4, UUID
 import torch
 
-MODEL_ID = "Qwen/Qwen2.5-0.5B"
-
 app = FastAPI()
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
-model_info = ModelInfoResponse(
-    model_id = MODEL_ID,
-    **inspect_head_layout(MODEL_ID)
-)
+
+
+def validate_model_id(model_id: str) -> None:
+    if model_id not in MODEL_IDS:
+        raise HTTPException(status_code=422, detail="Model ID không nằm trong danh sách hỗ trợ.")
+
+
+@lru_cache(maxsize=5)
+def get_tokenizer(model_id: str):
+    return AutoTokenizer.from_pretrained(model_id, use_fast=True)
+
+
+@lru_cache(maxsize=5)
+def model_info_for(model_id: str) -> ModelInfoResponse:
+    return ModelInfoResponse(model_id=model_id, **inspect_head_layout(model_id))
+
+
+def prepare_tokenizer(model_id: str):
+    validate_model_id(model_id)
+    try:
+        return get_tokenizer(model_id)
+    except (OSError, ValueError) as error:
+        raise HTTPException(status_code=503, detail=f"Không tải được tokenizer {model_id}. Kiểm tra kết nối Hugging Face và thử lại.") from error
+
+
+@app.get("/api/models", response_model=list[ModelOption])
+def get_models():
+    return MODEL_OPTIONS
 
 @app.post("/api/tokenize", response_model=TokenizeResponse)
 def tokenize(request: TokenizeRequest) -> TokenizeResponse:
+    tokenizer = prepare_tokenizer(request.model_id)
     encoding = tokenize_text(request.text, tokenizer)
-    return build_tokenize_response(request.text, encoding, tokenizer, MODEL_ID)
+    return build_tokenize_response(request.text, encoding, tokenizer, request.model_id)
 
 
 @app.get("/api/model-info", response_model=ModelInfoResponse)
-def get_model_info() -> ModelInfoResponse:
-    return model_info
+def get_model_info(model_id: str = DEFAULT_MODEL_ID) -> ModelInfoResponse:
+    validate_model_id(model_id)
+    try:
+        return model_info_for(model_id)
+    except (OSError, ValueError) as error:
+        raise HTTPException(status_code=503, detail=f"Không đọc được config {model_id}: {error}") from error
 
 @app.post("/api/traces", response_model = TraceCreatedResponse, status_code = 201)
 def create_trace(request: TokenizeRequest) -> TraceCreatedResponse:
+    tokenizer = prepare_tokenizer(request.model_id)
+    model_info = get_model_info(request.model_id)
     encoding = tokenize_text(request.text, tokenizer)
 
     num_tokens = len(encoding["input_ids"])
@@ -42,14 +73,18 @@ def create_trace(request: TokenizeRequest) -> TraceCreatedResponse:
             detail= "Input cần có từ 1 đến 32 token."
         )
 
-    tokenization = build_tokenize_response(request.text, encoding, tokenizer, MODEL_ID)
+    tokenization = build_tokenize_response(request.text, encoding, tokenizer, request.model_id)
 
     with trace_lock:
-        model = get_loaded_model(MODEL_ID)
         try:
+            model = get_loaded_model(request.model_id)
             layers = capture_qkv(model, encoding)
         except UnsupportedTraceError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
+        except torch.cuda.OutOfMemoryError as error:
+            raise HTTPException(status_code=503, detail="GPU không đủ VRAM. Hãy chọn model nhỏ hơn hoặc giảm số token.") from error
+        except (OSError, ValueError, RuntimeError) as error:
+            raise HTTPException(status_code=503, detail=f"Không chạy được {request.model_id}: {error}") from error
 
         trace_id = str(uuid4())
 

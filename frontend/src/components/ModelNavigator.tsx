@@ -3,6 +3,7 @@ import { getModelInfo } from '../api/model'
 import type { ModelInfo } from '../types/model'
 
 type Props = {
+  modelId: string
   layer: number | null
   head: number | null
   onSelectLayer: (layer: number) => void
@@ -10,7 +11,7 @@ type Props = {
   traceInfo?: ModelInfo
 }
 
-export default function ModelNavigator({ layer, head, onSelectLayer, onSelectHead, traceInfo }: Props) {
+export default function ModelNavigator({ modelId, layer, head, onSelectLayer, onSelectHead, traceInfo }: Props) {
   const [loadedInfo, setInfo] = useState<ModelInfo | null>(null)
   const info = traceInfo ?? loadedInfo
   const [error, setError] = useState<string | null>(null)
@@ -21,7 +22,7 @@ export default function ModelNavigator({ layer, head, onSelectLayer, onSelectHea
     setInfo(null)
     setError(null)
 
-    getModelInfo(controller.signal)
+    getModelInfo(modelId, controller.signal)
       .then((result) => {
         if (!controller.signal.aborted) setInfo(result)
       })
@@ -32,7 +33,7 @@ export default function ModelNavigator({ layer, head, onSelectLayer, onSelectHea
       })
 
     return () => controller.abort()
-  }, [retry])
+  }, [modelId, retry])
 
   const kvHead = info && head !== null ? Math.floor(head / info.queries_per_kv_head) : null
 

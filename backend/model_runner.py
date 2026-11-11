@@ -5,7 +5,7 @@ from transformers import (
     BatchEncoding,
     PreTrainedModel
 )
-from functools import lru_cache
+import gc
 
 from tokenization import tokenize_text
 
@@ -24,9 +24,22 @@ def load_model(model_id:str) -> PreTrainedModel:
 
     return model
 
-@lru_cache(maxsize=1)
+_loaded_model: PreTrainedModel | None = None
+_loaded_model_id: str | None = None
+
+
 def get_loaded_model(model_id: str) -> PreTrainedModel:
-    return load_model(model_id)
+    """Caller must hold trace_lock. Release the old model before loading another."""
+    global _loaded_model, _loaded_model_id
+    if _loaded_model is None or _loaded_model_id != model_id:
+        _loaded_model = None
+        _loaded_model_id = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        _loaded_model = load_model(model_id)
+        _loaded_model_id = model_id
+    return _loaded_model
 
 @torch.inference_mode()
 def forward_once(

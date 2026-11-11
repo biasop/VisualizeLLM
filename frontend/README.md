@@ -13,8 +13,8 @@ FastAPI phải chạy ở `127.0.0.1:8000`. Vite proxy chuyển `/api` tới bac
 
 ## Luồng dữ liệu
 
-1. `GET /api/model-info` tạo các lựa chọn layer/head từ config.
-2. Nút **Chỉ tokenize** gọi `POST /api/tokenize`; không chạy model.
+1. `GET /api/models` cung cấp bộ chọn model. `GET /api/model-info?model_id=...` tạo các lựa chọn layer/head từ config model đã chọn.
+2. Nút **Chỉ tokenize** gọi `POST /api/tokenize`; không chạy model. Cả hai POST gửi `{ "text": "...", "model_id": "..." }`; bỏ model_id thì backend dùng Qwen2.5-0.5B.
 3. Nút **Chạy model, tạo trace** gọi `POST /api/traces`. Response cung cấp trace ID, tokenization và model metadata.
 4. Chọn layer gọi `GET /api/traces/{trace_id}/layers/{layer}/qkv` nếu layer chưa có trong cache. Cache được gắn với trace ID và xóa khi tạo input/trace mới.
 5. Đổi head hoặc token chỉ chọn lát cắt dữ liệu trong frontend. Response đến muộn của một layer/trace cũ không được thay dữ liệu hiện tại.
@@ -45,6 +45,10 @@ Chọn ô hoặc token không thể hiện quan hệ nhân quả hay ý nghĩa n
 
 ## Phạm vi tracer backend
 
-Backend dùng `AttentionInterface` và formatter mask SDPA, không monkey-patch hàm RoPE riêng của model. Hỗ trợ phạm vi decoder-only MHA/GQA truyền kwargs và gọi attention đúng một lần cho mỗi decoder layer; trường hợp ngoài phạm vi phải báo lỗi rõ ràng. Model selector nhiều checkpoint chưa được thêm; model đang hoạt động vẫn do `MODEL_ID` backend quyết định.
+Backend dùng `AttentionInterface` và formatter mask SDPA, không monkey-patch hàm RoPE riêng của model. Hỗ trợ phạm vi decoder-only MHA/GQA truyền kwargs và gọi attention đúng một lần cho mỗi decoder layer; trường hợp ngoài phạm vi phải báo lỗi rõ ràng.
+
+Bộ chọn lấy từ `backend/model_catalog.py`: [Qwen2.5-0.5B](https://huggingface.co/Qwen/Qwen2.5-0.5B), [Qwen3-0.6B](https://huggingface.co/Qwen/Qwen3-0.6B), [SmolLM2-360M](https://huggingface.co/HuggingFaceTB/SmolLM2-360M), [Pythia-160M](https://huggingface.co/EleutherAI/pythia-160m), [GPT-2](https://huggingface.co/openai-community/gpt2). Test kiến trúc dùng cấu hình nhỏ ngẫu nhiên; không đồng nghĩa đã chạy mọi pretrained checkpoint trên GPU. Lần đầu cần kết nối Hugging Face để tải tokenizer/config và trọng số.
+
+Đổi model xóa kết quả/cache frontend. Backend giữ tối đa một model GPU, giải phóng model trước khi nạp model khác dưới `trace_lock`. Chỉ chọn model sẽ đọc config; trọng số chỉ nạp khi tạo trace. Trace CPU trước vẫn tồn tại tới khi một trace mới được tạo thành công.
 
 Sau khi đổi contract từ pre-RoPE sang attention-input, restart backend và tạo trace mới. Frontend không diễn giải trace cũ bằng nhãn mới.

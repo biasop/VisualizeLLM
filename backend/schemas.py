@@ -1,8 +1,15 @@
 from pydantic import BaseModel
 from uuid import UUID
+from backend.model_catalog import DEFAULT_MODEL_ID
 
 class TokenizeRequest(BaseModel):
     text: str
+    model_id: str = DEFAULT_MODEL_ID
+
+
+class ModelOption(BaseModel):
+    model_id: str
+    label: str
 
 
 class TokenItem(BaseModel):

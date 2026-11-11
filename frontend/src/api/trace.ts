@@ -12,11 +12,11 @@ async function readResponse<T>(response: Response): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function createTrace(text: string): Promise<TraceCreated> {
+export async function createTrace(text: string, modelId: string): Promise<TraceCreated> {
   return readResponse<TraceCreated>(await fetch('/api/traces', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, model_id: modelId }),
   }))
 }
 
